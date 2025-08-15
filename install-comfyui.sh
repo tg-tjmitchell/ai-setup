@@ -11,7 +11,7 @@ set -euo pipefail
 
 # Configuration (override via env vars)
 ADD_NVIDIA=${ADD_NVIDIA:-true}
-COMFY_ROOT=${COMFY_ROOT:-"$HOME/comfy"}
+COMFY_ROOT=${COMFY_ROOT:-"$HOME/comfy/ComfyUI"}
 PLUGINS_CSV=${PLUGINS_CSV:-"./plugins.csv"}
 CONFIG_INI=${CONFIG_INI:-"./config.ini"}
 # Default URLs for remote config/plugins (can be overridden via env vars)
@@ -21,21 +21,7 @@ CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchel
 PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
 
 echo "ComfyUI installer (standalone)"
-
-# Determine whether COMFY_ROOT points directly at an existing ComfyUI repo (legacy behavior)
-# or is a base directory under which we should place the repo in a subfolder (new behavior).
-COMFY_UI_DIR="" # final path to actual ComfyUI repository
-if [[ -d "${COMFY_ROOT}" && -f "${COMFY_ROOT}/main.py" ]]; then
-  # Looks like COMFY_ROOT already IS the repo (legacy usage where COMFY_ROOT ended in ComfyUI)
-  COMFY_UI_DIR="${COMFY_ROOT}"
-  COMFY_BASE="$(dirname "${COMFY_ROOT}")"
-else
-  # Treat COMFY_ROOT as a base directory that will contain the repo folder 'ComfyUI'
-  COMFY_BASE="${COMFY_ROOT}"
-  COMFY_UI_DIR="${COMFY_BASE}/ComfyUI"
-fi
-
-echo "COMFY_BASE=${COMFY_BASE} COMFY_UI_DIR=${COMFY_UI_DIR} ADD_NVIDIA=${ADD_NVIDIA}"
+echo "COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA}"
 
 # Helper: download a file to a destination if possible (uses curl or wget)
 download_file() {
@@ -82,18 +68,28 @@ else
   echo "apt-get not found; skipping cloudflared install"
 fi
 
-# Run comfy install so the repository ends up at COMFY_UI_DIR.
-mkdir -p "${COMFY_BASE}"
-if [[ -d "${COMFY_UI_DIR}" ]]; then
-  echo "Existing install detected at ${COMFY_UI_DIR}; skipping comfy install step"
+# Run comfy install inside the parent directory of COMFY_ROOT so the created
+# repository ends up at COMFY_ROOT. If COMFY_ROOT already exists we skip.
+TARGET_PARENT="$(dirname "${COMFY_ROOT}")"
+TARGET_BASENAME="$(basename "${COMFY_ROOT}")"
+mkdir -p "${TARGET_PARENT}"
+
+if [[ -d "${COMFY_ROOT}" ]]; then
+  echo "Existing install detected at ${COMFY_ROOT}; skipping comfy install step"
 else
-  echo "Running comfy install (fast-deps) in base ${COMFY_BASE} producing ${COMFY_UI_DIR}";
+  echo "Running comfy install (fast-deps) in ${TARGET_PARENT} targeting ${COMFY_ROOT}";
   (
-    cd "${COMFY_BASE}";
+    cd "${TARGET_PARENT}";
     if [[ "${ADD_NVIDIA}" == "true" ]]; then
       comfy --skip-prompt install --fast-deps --nvidia
     else
       comfy --skip-prompt install --fast-deps
+    fi
+    # If the CLI always creates a directory named 'ComfyUI' but the user wants a different basename,
+    # move it into place (only if destination does not already exist).
+    if [[ "${TARGET_BASENAME}" != "ComfyUI" && -d "ComfyUI" && ! -e "${TARGET_BASENAME}" ]]; then
+      echo "Renaming ComfyUI -> ${TARGET_BASENAME} to match COMFY_ROOT"
+      mv "ComfyUI" "${TARGET_BASENAME}"
     fi
   )
 fi
@@ -127,20 +123,20 @@ if [[ -f "${PLUGINS_CSV}" ]]; then
 fi
 
 # Place config files and prepare directories
-echo "Creating config and custom node directories under ${COMFY_UI_DIR}"
-mkdir -p "${COMFY_UI_DIR}/user/default/ComfyUI-Manager"
-mkdir -p "${COMFY_UI_DIR}/custom_nodes/comfyui-lora-manager"
-mkdir -p "${COMFY_UI_DIR}/temp"
+echo "Creating config and custom node directories under ${COMFY_ROOT}"
+mkdir -p "${COMFY_ROOT}/user/default/ComfyUI-Manager"
+mkdir -p "${COMFY_ROOT}/custom_nodes/comfyui-lora-manager"
+mkdir -p "${COMFY_ROOT}/temp"
 
 if [[ -f "${CONFIG_INI}" ]]; then
-  echo "Copying ${CONFIG_INI} -> ${COMFY_UI_DIR}/user/default/ComfyUI-Manager/config.ini"
-  cp "${CONFIG_INI}" "${COMFY_UI_DIR}/user/default/ComfyUI-Manager/config.ini"
+  echo "Copying ${CONFIG_INI} -> ${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
+  cp "${CONFIG_INI}" "${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
 else
   # Try to download config.ini if a URL is available
   if [[ -n "${CONFIG_INI_URL:-}" ]]; then
     if download_file "${CONFIG_INI_URL}" "${CONFIG_INI}"; then
-  echo "Downloaded config.ini -> ${CONFIG_INI}; copying to ${COMFY_UI_DIR}/user/default/ComfyUI-Manager/config.ini"
-  cp "${CONFIG_INI}" "${COMFY_UI_DIR}/user/default/ComfyUI-Manager/config.ini" || echo "Failed to copy downloaded config.ini"
+      echo "Downloaded config.ini -> ${CONFIG_INI}; copying to ${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
+      cp "${CONFIG_INI}" "${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini" || echo "Failed to copy downloaded config.ini"
     else
       echo "Could not download config.ini from ${CONFIG_INI_URL}; skipping"
     fi
@@ -150,8 +146,8 @@ else
 fi
 
 # Reset models directory
-echo "Resetting models directory: ${COMFY_UI_DIR}/models"
-rm -rf "${COMFY_UI_DIR}/models"
-mkdir -p "${COMFY_UI_DIR}/models"
+echo "Resetting models directory: ${COMFY_ROOT}/models"
+rm -rf "${COMFY_ROOT}/models"
+mkdir -p "${COMFY_ROOT}/models"
 
 echo "ComfyUI install logic complete."
