@@ -14,9 +14,33 @@ ADD_NVIDIA=${ADD_NVIDIA:-true}
 COMFY_ROOT=${COMFY_ROOT:-"$HOME/comfy/ComfyUI"}
 PLUGINS_CSV=${PLUGINS_CSV:-"./plugins.csv"}
 CONFIG_INI=${CONFIG_INI:-"./config.ini"}
+# Default URLs for remote config/plugins (can be overridden via env vars)
+# By default these point at the raw files in the repository; override with
+# CONFIG_INI_URL and PLUGINS_CSV_URL to use other locations.
+CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/config.ini"}
+PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
 
 echo "ComfyUI installer (standalone)"
 echo "COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA}"
+
+# Helper: download a file to a destination if possible (uses curl or wget)
+download_file() {
+  local url="$1" dest="$2"
+  if [[ -z "${url:-}" ]]; then
+    return 1
+  fi
+  echo "Attempting to download ${dest} from ${url}"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "${dest}" "${url}"
+    return $?
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${dest}" "${url}"
+    return $?
+  else
+    echo "No curl or wget available to download ${url}"
+    return 2
+  fi
+}
 
 # Ensure pip and comfy-cli
 echo "Upgrading pip and installing comfy-cli"
@@ -54,6 +78,21 @@ fi
 
 # Install custom nodes from plugins.csv (first row, comma-separated)
 if [[ -f "${PLUGINS_CSV}" ]]; then
+  echo "Found ${PLUGINS_CSV} locally"
+else
+  # Try to download plugins.csv if a URL is available
+  if [[ -n "${PLUGINS_CSV_URL:-}" ]]; then
+    if download_file "${PLUGINS_CSV_URL}" "${PLUGINS_CSV}"; then
+      echo "Downloaded plugins.csv -> ${PLUGINS_CSV}"
+    else
+      echo "Could not download plugins.csv from ${PLUGINS_CSV_URL}; proceeding without it"
+    fi
+  else
+    echo "No plugins.csv found at ${PLUGINS_CSV} and no PLUGINS_CSV_URL provided; skipping node install"
+  fi
+fi
+
+if [[ -f "${PLUGINS_CSV}" ]]; then
   nodes_line=$(head -n1 "${PLUGINS_CSV}" || true)
   if [[ -n "${nodes_line}" ]]; then
     # convert commas to spaces
@@ -63,8 +102,6 @@ if [[ -f "${PLUGINS_CSV}" ]]; then
   else
     echo "plugins.csv empty; skipping node install"
   fi
-else
-  echo "No plugins.csv found at ${PLUGINS_CSV}; skipping node install"
 fi
 
 # Place config files and prepare directories
@@ -77,7 +114,17 @@ if [[ -f "${CONFIG_INI}" ]]; then
   echo "Copying ${CONFIG_INI} -> ${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
   cp "${CONFIG_INI}" "${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
 else
-  echo "No config.ini found at ${CONFIG_INI}; skipping"
+  # Try to download config.ini if a URL is available
+  if [[ -n "${CONFIG_INI_URL:-}" ]]; then
+    if download_file "${CONFIG_INI_URL}" "${CONFIG_INI}"; then
+      echo "Downloaded config.ini -> ${CONFIG_INI}; copying to ${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
+      cp "${CONFIG_INI}" "${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini" || echo "Failed to copy downloaded config.ini"
+    else
+      echo "Could not download config.ini from ${CONFIG_INI_URL}; skipping"
+    fi
+  else
+    echo "No config.ini found at ${CONFIG_INI} and no CONFIG_INI_URL provided; skipping"
+  fi
 fi
 
 # Reset models directory
