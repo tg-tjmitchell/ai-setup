@@ -10,8 +10,27 @@ set -euo pipefail
 # - Resets the models directory
 
 # Configuration (override via env vars)
+# COMFY_WORKSPACE is the directory under which ComfyUI will be installed as a subfolder 'ComfyUI'.
+# COMFY_ROOT is the resulting full path to the ComfyUI repo itself (i.e. "$COMFY_WORKSPACE/ComfyUI").
 ADD_NVIDIA=${ADD_NVIDIA:-true}
-COMFY_ROOT=${COMFY_ROOT:-"$HOME/comfy/ComfyUI"}
+COMFY_WORKSPACE=${COMFY_WORKSPACE:-"$HOME/comfy"}
+COMFY_ROOT=${COMFY_ROOT:-"$COMFY_WORKSPACE/ComfyUI"}
+
+# If user provided COMFY_ROOT but not COMFY_WORKSPACE (or they mismatch), realign so that
+# installing with `comfy --workspace <COMFY_WORKSPACE> install` puts files at COMFY_ROOT.
+if [[ -n "${COMFY_ROOT}" ]]; then
+  if [[ -z "${COMFY_WORKSPACE_SET:-}" && -z "${COMFY_WORKSPACE_ENV_UNSET:-}" ]]; then
+    : # placeholder if we later want to detect explicit workspace exports
+  fi
+  # If COMFY_ROOT doesn't end with /ComfyUI, treat its parent as workspace and normalize root.
+  if [[ "${COMFY_ROOT}" != */ComfyUI ]]; then
+    COMFY_WORKSPACE="$(dirname "${COMFY_ROOT}")"
+    COMFY_ROOT="${COMFY_WORKSPACE}/ComfyUI"
+  else
+    # Derive workspace from root suffix
+    COMFY_WORKSPACE="${COMFY_ROOT%/ComfyUI}"
+  fi
+fi
 PLUGINS_CSV=${PLUGINS_CSV:-"./plugins.csv"}
 CONFIG_INI=${CONFIG_INI:-"./config.ini"}
 # Default URLs for remote config/plugins (can be overridden via env vars)
@@ -21,7 +40,7 @@ CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchel
 PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
 
 echo "ComfyUI installer (standalone)"
-echo "COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA}"
+echo "COMFY_WORKSPACE=${COMFY_WORKSPACE} COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA}"
 
 # Helper: download a file to a destination if possible (uses curl or wget)
 download_file() {
@@ -68,12 +87,12 @@ else
   echo "apt-get not found; skipping cloudflared install"
 fi
 
-# Run comfy install
-echo "Running comfy install (fast-deps)"
+# Run comfy install into the specified workspace (creates/updates ${COMFY_ROOT})
+echo "Running comfy install (fast-deps) into workspace ${COMFY_WORKSPACE}" 
 if [[ "${ADD_NVIDIA}" == "true" ]]; then
-  comfy --skip-prompt install --fast-deps --nvidia
+  comfy --workspace="${COMFY_WORKSPACE}" --skip-prompt install --fast-deps --nvidia
 else
-  comfy --skip-prompt install --fast-deps
+  comfy --workspace="${COMFY_WORKSPACE}" --skip-prompt install --fast-deps
 fi
 
 # Install custom nodes from plugins.csv (first row, comma-separated)
@@ -98,7 +117,7 @@ if [[ -f "${PLUGINS_CSV}" ]]; then
     # convert commas to spaces
     nodes=$(echo "$nodes_line" | tr ',' ' ')
     echo "Installing custom nodes: $nodes"
-    comfy node install --fast-deps $nodes || echo "Some node installs failed"
+  comfy --workspace="${COMFY_WORKSPACE}" node install --fast-deps $nodes || echo "Some node installs failed"
   else
     echo "plugins.csv empty; skipping node install"
   fi
