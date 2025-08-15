@@ -24,16 +24,21 @@ python -m pip install --upgrade pip
 python -m pip install --no-cache-dir comfy-cli
 # Optional cloudflared installation: only if apt-get is available (best-effort)
 if command -v apt-get >/dev/null 2>&1; then
-  echo "Attempting cloudflared install (apt-based)"
-  tmpdeb=$(mktemp --suffix=.deb)
-  if curl -fsSL -o "$tmpdeb" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb; then
-    set +e
-    sudo apt-get update && sudo apt-get install -y "$tmpdeb" || (sudo dpkg -i "$tmpdeb" && sudo apt-get install -f -y)
-    set -e
-    rm -f "$tmpdeb"
+  # Check if cloudflared is already installed to avoid unnecessary install attempts
+  if command -v cloudflared >/dev/null 2>&1; then
+    echo "cloudflared is already installed: $(cloudflared --version 2>/dev/null || true)"
   else
-    echo "Could not download cloudflared; skipping"
-    rm -f "$tmpdeb" || true
+    echo "Attempting cloudflared install (apt-based)"
+    tmpdeb=$(mktemp --suffix=.deb)
+    if curl -fsSL -o "$tmpdeb" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb; then
+      set +e
+      sudo apt-get update && sudo apt-get install -y "$tmpdeb" || (sudo dpkg -i "$tmpdeb" && sudo apt-get install -f -y)
+      set -e
+      rm -f "$tmpdeb"
+    else
+      echo "Could not download cloudflared; skipping"
+      rm -f "$tmpdeb" || true
+    fi
   fi
 else
   echo "apt-get not found; skipping cloudflared install"
