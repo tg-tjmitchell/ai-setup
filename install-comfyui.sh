@@ -68,30 +68,12 @@ else
   echo "apt-get not found; skipping cloudflared install"
 fi
 
-# Run comfy install inside the parent directory of COMFY_ROOT so the created
-# repository ends up at COMFY_ROOT. If COMFY_ROOT already exists we skip.
-TARGET_PARENT="$(dirname "${COMFY_ROOT}")"
-TARGET_BASENAME="$(basename "${COMFY_ROOT}")"
-mkdir -p "${TARGET_PARENT}"
-
-if [[ -d "${COMFY_ROOT}" ]]; then
-  echo "Existing install detected at ${COMFY_ROOT}; skipping comfy install step"
+# Run comfy install
+echo "Running comfy install (fast-deps)"
+if [[ "${ADD_NVIDIA}" == "true" ]]; then
+  comfy --skip-prompt install --fast-deps --nvidia
 else
-  echo "Running comfy install (fast-deps) in ${TARGET_PARENT} targeting ${COMFY_ROOT}";
-  (
-    cd "${TARGET_PARENT}";
-    if [[ "${ADD_NVIDIA}" == "true" ]]; then
-      comfy --skip-prompt install --fast-deps --nvidia
-    else
-      comfy --skip-prompt install --fast-deps
-    fi
-    # If the CLI always creates a directory named 'ComfyUI' but the user wants a different basename,
-    # move it into place (only if destination does not already exist).
-    if [[ "${TARGET_BASENAME}" != "ComfyUI" && -d "ComfyUI" && ! -e "${TARGET_BASENAME}" ]]; then
-      echo "Renaming ComfyUI -> ${TARGET_BASENAME} to match COMFY_ROOT"
-      mv "ComfyUI" "${TARGET_BASENAME}"
-    fi
-  )
+  comfy --skip-prompt install --fast-deps
 fi
 
 # Install custom nodes from plugins.csv (first row, comma-separated)
