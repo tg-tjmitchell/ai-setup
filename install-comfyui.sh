@@ -56,7 +56,7 @@ if command -v apt-get >/dev/null 2>&1; then
     tmpdeb=$(mktemp --suffix=.deb)
     if curl -fsSL -o "$tmpdeb" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb; then
       set +e
-      sudo apt-get update && sudo apt-get install -y "$tmpdeb" || (sudo dpkg -i "$tmpdeb" && sudo apt-get install -f -y)
+      apt-get update && apt-get install -y "$tmpdeb" || (dpkg -i "$tmpdeb" && apt-get install -f -y)
       set -e
       rm -f "$tmpdeb"
     else
