@@ -18,21 +18,33 @@ COMFY_ROOT=${COMFY_ROOT:-"$COMFY_WORKSPACE/ComfyUI"}
 SET_DEFAULT=${SET_DEFAULT:-true}          # Whether to run `comfy set-default` after install
 LAUNCH_EXTRAS=${LAUNCH_EXTRAS:-""}        # Extra default launch args passed to set-default (optional)
 
-# If user provided COMFY_ROOT but not COMFY_WORKSPACE (or they mismatch), realign so that
-# installing with `comfy --workspace <COMFY_WORKSPACE> install` puts files at COMFY_ROOT.
+# Normalize workspace/root relationship.
+# Cases:
+# 1) User sets COMFY_WORKSPACE only -> COMFY_ROOT becomes COMFY_WORKSPACE/ComfyUI
+# 2) User sets COMFY_ROOT ending in /ComfyUI -> derive workspace by stripping suffix
+# 3) User sets COMFY_ROOT WITHOUT /ComfyUI (e.g. /workspace) -> treat that as workspace (not parent dir)
 if [[ -n "${COMFY_ROOT}" ]]; then
-  if [[ -z "${COMFY_WORKSPACE_SET:-}" && -z "${COMFY_WORKSPACE_ENV_UNSET:-}" ]]; then
-    : # placeholder if we later want to detect explicit workspace exports
-  fi
-  # If COMFY_ROOT doesn't end with /ComfyUI, treat its parent as workspace and normalize root.
-  if [[ "${COMFY_ROOT}" != */ComfyUI ]]; then
-    COMFY_WORKSPACE="$(dirname "${COMFY_ROOT}")"
-    COMFY_ROOT="${COMFY_WORKSPACE}/ComfyUI"
-  else
-    # Derive workspace from root suffix
+  if [[ "${COMFY_ROOT}" == */ComfyUI ]]; then
     COMFY_WORKSPACE="${COMFY_ROOT%/ComfyUI}"
+  else
+    # Treat provided COMFY_ROOT path as the intended workspace path
+    COMFY_WORKSPACE="${COMFY_ROOT%/}"
+    COMFY_ROOT="${COMFY_WORKSPACE}/ComfyUI"
   fi
 fi
+# Collapse any duplicate slashes (cosmetic) while preserving leading double slash (UNC) or root
+normalize_path() { # naive slash collapse
+  local p="$1"
+  # Preserve leading '//' (e.g., network shares) by temporary token
+  if [[ "$p" == //* ]]; then
+    p="__UNC__${p#//}"
+  fi
+  while [[ "$p" == *"//"* ]]; do p="${p//\/\//\/}"; done
+  p="${p/__UNC__/\/\/}" # restore if UNC
+  echo "$p"
+}
+COMFY_WORKSPACE=$(normalize_path "${COMFY_WORKSPACE}")
+COMFY_ROOT=$(normalize_path "${COMFY_ROOT}")
 PLUGINS_CSV=${PLUGINS_CSV:-"./plugins.csv"}
 CONFIG_INI=${CONFIG_INI:-"./config.ini"}
 # Default URLs for remote config/plugins (can be overridden via env vars)
