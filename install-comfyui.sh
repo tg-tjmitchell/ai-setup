@@ -16,6 +16,8 @@ PLUGINS_CSV=${PLUGINS_CSV:-"./plugins.csv"}
 CONFIG_INI=${CONFIG_INI:-"./config.ini"}
 PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
 CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/config.ini"}
+VENV_DIR=${VENV_DIR:-".venv"}
+USE_VENV=${USE_VENV:-true}   # Set to 'false' to skip creating/using a virtual environment
 
 # Directory of this script (original repo dir) in case we need to copy local files after cd
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
@@ -39,6 +41,26 @@ echo "WORKSPACE=${WORKSPACE} ADD_NVIDIA=${ADD_NVIDIA}"
 
 mkdir -p "${WORKSPACE}"
 cd "${WORKSPACE}"
+
+if [[ "${USE_VENV}" == "true" ]]; then
+  echo "==> Creating / activating virtual environment (${VENV_DIR})"
+  if [[ ! -d "${VENV_DIR}" ]]; then
+    python -m venv "${VENV_DIR}" || { echo "Failed to create venv"; exit 1; }
+  fi
+  if [[ -f "${VENV_DIR}/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    source "${VENV_DIR}/bin/activate"
+  elif [[ -f "${VENV_DIR}/Scripts/activate" ]]; then
+    # shellcheck disable=SC1091
+    source "${VENV_DIR}/Scripts/activate"
+  else
+    echo "Could not locate activate script in ${VENV_DIR}" >&2
+    exit 1
+  fi
+else
+  echo "==> Skipping virtual environment (USE_VENV=${USE_VENV})"
+fi
+echo "==> Using python: $(command -v python)"
 
 echo "==> Ensuring comfy-cli is available"
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
