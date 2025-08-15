@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.env
+.venv
+venv/
+
+# Editor/IDE
+.vscode/
+.idea/
+.DS_Store
+
+# ComfyUI artifacts
+comfy/
+comfyui_env/
+models/
+
+# System
+Thumbs.db
+
+# Logs
+*.log
