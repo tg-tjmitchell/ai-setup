@@ -1,178 +1,94 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Minimal standalone installer for ComfyUI logic extracted from the project's Dockerfile.
-# - Installs comfy-cli (and jupyterlab)
-# - Optionally attempts to install cloudflared (only if apt-get is available)
-# - Runs `comfy install` with optional NVIDIA support via ADD_NVIDIA env var
-# - Installs custom nodes listed in the first row of plugins.csv (comma-separated)
-# - Creates expected config directories and copies config.ini if present
-# - Resets the models directory
+# Ultra-simplified ComfyUI installer.
+# Goals:
+# 1. Pick (or create) a workspace directory.
+# 2. Install/upgrade comfy-cli.
+# 3. Run `comfy --here install` (optionally with --nvidia) inside that workspace.
+# 4. If a local plugins.csv exists, install first-row nodes.
+# 5. If a local config.ini exists, place it where ComfyUI Manager expects it.
 
-# Configuration (override via env vars)
-# COMFY_WORKSPACE is the directory under which ComfyUI will be installed as a subfolder 'ComfyUI'.
-# COMFY_ROOT is the resulting full path to the ComfyUI repo itself (i.e. "$COMFY_WORKSPACE/ComfyUI").
 ADD_NVIDIA=${ADD_NVIDIA:-true}
-COMFY_WORKSPACE=${COMFY_WORKSPACE:-"$HOME/comfy"}
-COMFY_ROOT=${COMFY_ROOT:-"$COMFY_WORKSPACE/ComfyUI"}
-SET_DEFAULT=${SET_DEFAULT:-true}          # Whether to run `comfy set-default` after install
-LAUNCH_EXTRAS=${LAUNCH_EXTRAS:-""}        # Extra default launch args passed to set-default (optional)
-
-# Normalize workspace/root relationship.
-# Cases:
-# 1) User sets COMFY_WORKSPACE only -> COMFY_ROOT becomes COMFY_WORKSPACE/ComfyUI
-# 2) User sets COMFY_ROOT ending in /ComfyUI -> derive workspace by stripping suffix
-# 3) User sets COMFY_ROOT WITHOUT /ComfyUI (e.g. /workspace) -> treat that as workspace (not parent dir)
-if [[ -n "${COMFY_ROOT}" ]]; then
-  if [[ "${COMFY_ROOT}" == */ComfyUI ]]; then
-    COMFY_WORKSPACE="${COMFY_ROOT%/ComfyUI}"
-  else
-    # Treat provided COMFY_ROOT path as the intended workspace path
-    COMFY_WORKSPACE="${COMFY_ROOT%/}"
-    COMFY_ROOT="${COMFY_WORKSPACE}/ComfyUI"
-  fi
-fi
-# Collapse any duplicate slashes (cosmetic) while preserving leading double slash (UNC) or root
-normalize_path() { # naive slash collapse
-  local p="$1"
-  # Preserve leading '//' (e.g., network shares) by temporary token
-  if [[ "$p" == //* ]]; then
-    p="__UNC__${p#//}"
-  fi
-  while [[ "$p" == *"//"* ]]; do p="${p//\/\//\/}"; done
-  p="${p/__UNC__/\/\/}" # restore if UNC
-  echo "$p"
-}
-COMFY_WORKSPACE=$(normalize_path "${COMFY_WORKSPACE}")
-COMFY_ROOT=$(normalize_path "${COMFY_ROOT}")
+# Default workspace is the directory from which this script is invoked (current dir)
+WORKSPACE=${WORKSPACE:-"$PWD"}
 PLUGINS_CSV=${PLUGINS_CSV:-"./plugins.csv"}
 CONFIG_INI=${CONFIG_INI:-"./config.ini"}
-# Default URLs for remote config/plugins (can be overridden via env vars)
-# By default these point at the raw files in the repository; override with
-# CONFIG_INI_URL and PLUGINS_CSV_URL to use other locations.
-CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/config.ini"}
 PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
+CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/config.ini"}
 
-echo "ComfyUI installer (standalone)"
-echo "COMFY_WORKSPACE=${COMFY_WORKSPACE} COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA} SET_DEFAULT=${SET_DEFAULT}"
+# Directory of this script (original repo dir) in case we need to copy local files after cd
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
 
-# Helper: download a file to a destination if possible (uses curl or wget)
+# Simple downloader (curl or wget). Usage: download_file URL DEST
 download_file() {
   local url="$1" dest="$2"
-  if [[ -z "${url:-}" ]]; then
-    return 1
-  fi
-  echo "Attempting to download ${dest} from ${url}"
+  [[ -z "$url" ]] && return 1
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "${dest}" "${url}"
-    return $?
+    curl -fsSL -o "$dest" "$url" && return 0 || return 1
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${dest}" "${url}"
-    return $?
+    wget -qO "$dest" "$url" && return 0 || return 1
   else
-    echo "No curl or wget available to download ${url}"
+    echo "(info) Neither curl nor wget available for download of $url" >&2
     return 2
   fi
 }
 
-# Ensure pip and comfy-cli
-echo "Upgrading pip and installing comfy-cli"
-python -m pip install --upgrade pip
-python -m pip install --no-cache-dir comfy-cli
-# Optional cloudflared installation: only if apt-get is available (best-effort)
-if command -v apt-get >/dev/null 2>&1; then
-  # Check if cloudflared is already installed to avoid unnecessary install attempts
-  if command -v cloudflared >/dev/null 2>&1; then
-    echo "cloudflared is already installed: $(cloudflared --version 2>/dev/null || true)"
-  else
-    echo "Attempting cloudflared install (apt-based)"
-    tmpdeb=$(mktemp --suffix=.deb)
-    if curl -fsSL -o "$tmpdeb" https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb; then
-      set +e
-      sudo apt-get update && sudo apt-get install -y "$tmpdeb" || (sudo dpkg -i "$tmpdeb" && sudo apt-get install -f -y)
-      set -e
-      rm -f "$tmpdeb"
-    else
-      echo "Could not download cloudflared; skipping"
-      rm -f "$tmpdeb" || true
-    fi
-  fi
-else
-  echo "apt-get not found; skipping cloudflared install"
-fi
+echo "==> ComfyUI simple install"
+echo "WORKSPACE=${WORKSPACE} ADD_NVIDIA=${ADD_NVIDIA}"
 
-# Run comfy install into the specified workspace (creates/updates ${COMFY_ROOT})
-echo "Running comfy install (fast-deps) into workspace ${COMFY_WORKSPACE}" 
+mkdir -p "${WORKSPACE}"
+cd "${WORKSPACE}"
+
+echo "==> Ensuring comfy-cli is available"
+python -m pip install --upgrade pip >/dev/null 2>&1 || true
+python -m pip install --no-cache-dir -q comfy-cli
+
+echo "==> Running comfy install (--here)"
 if [[ "${ADD_NVIDIA}" == "true" ]]; then
-  comfy --workspace="${COMFY_WORKSPACE}" --skip-prompt install --fast-deps --nvidia
+  comfy --here --skip-prompt install --fast-deps --nvidia
 else
-  comfy --workspace="${COMFY_WORKSPACE}" --skip-prompt install --fast-deps
+  comfy --here --skip-prompt install --fast-deps
 fi
 
-# Optionally set this workspace as the default for subsequent comfy commands
-if [[ "${SET_DEFAULT}" == "true" ]]; then
-  echo "Setting default workspace to ${COMFY_WORKSPACE}"
-  if [[ -n "${LAUNCH_EXTRAS}" ]]; then
-    comfy set-default "${COMFY_WORKSPACE}" --launch-extras="${LAUNCH_EXTRAS}" || echo "set-default failed (non-fatal)"
+COMFY_ROOT="${PWD}/ComfyUI"
+
+# Ensure plugins.csv (try local repo copy, else download if missing)
+if [[ ! -f "${PLUGINS_CSV}" ]]; then
+  if [[ -f "${SCRIPT_DIR}/$(basename "${PLUGINS_CSV}")" ]]; then
+    cp "${SCRIPT_DIR}/$(basename "${PLUGINS_CSV}")" "${PLUGINS_CSV}" && echo "==> Copied plugins.csv from script directory"
   else
-    comfy set-default "${COMFY_WORKSPACE}" || echo "set-default failed (non-fatal)"
+    download_file "${PLUGINS_CSV_URL}" "${PLUGINS_CSV}" && echo "==> Downloaded plugins.csv" || echo "(info) plugins.csv unavailable (skipping custom nodes)"
   fi
 fi
 
-# Install custom nodes from plugins.csv (first row, comma-separated)
+# Optional: custom nodes from plugins.csv (first line, comma separated)
 if [[ -f "${PLUGINS_CSV}" ]]; then
-  echo "Found ${PLUGINS_CSV} locally"
-else
-  # Try to download plugins.csv if a URL is available
-  if [[ -n "${PLUGINS_CSV_URL:-}" ]]; then
-    if download_file "${PLUGINS_CSV_URL}" "${PLUGINS_CSV}"; then
-      echo "Downloaded plugins.csv -> ${PLUGINS_CSV}"
-    else
-      echo "Could not download plugins.csv from ${PLUGINS_CSV_URL}; proceeding without it"
-    fi
-  else
-    echo "No plugins.csv found at ${PLUGINS_CSV} and no PLUGINS_CSV_URL provided; skipping node install"
+  first_line=$(head -n1 "${PLUGINS_CSV}" || true)
+  if [[ -n "${first_line}" ]]; then
+    echo "==> Installing custom nodes from ${PLUGINS_CSV}"
+    nodes=$(echo "${first_line}" | tr ',' ' ')
+    comfy --here node install --fast-deps ${nodes} || echo "(warning) Some node installs failed"
   fi
 fi
 
-if [[ -f "${PLUGINS_CSV}" ]]; then
-  nodes_line=$(head -n1 "${PLUGINS_CSV}" || true)
-  if [[ -n "${nodes_line}" ]]; then
-    # convert commas to spaces
-    nodes=$(echo "$nodes_line" | tr ',' ' ')
-    echo "Installing custom nodes: $nodes"
-  comfy --workspace="${COMFY_WORKSPACE}" node install --fast-deps $nodes || echo "Some node installs failed"
+# Ensure config.ini (try local repo copy, else download if missing)
+if [[ ! -f "${CONFIG_INI}" ]]; then
+  if [[ -f "${SCRIPT_DIR}/$(basename "${CONFIG_INI}")" ]]; then
+    cp "${SCRIPT_DIR}/$(basename "${CONFIG_INI}")" "${CONFIG_INI}" && echo "==> Copied config.ini from script directory"
   else
-    echo "plugins.csv empty; skipping node install"
+    download_file "${CONFIG_INI_URL}" "${CONFIG_INI}" && echo "==> Downloaded config.ini" || echo "(info) config.ini unavailable (continuing)"
   fi
 fi
 
-# Place config files and prepare directories
-echo "Creating config and custom node directories under ${COMFY_ROOT}"
-mkdir -p "${COMFY_ROOT}/user/default/ComfyUI-Manager"
-mkdir -p "${COMFY_ROOT}/custom_nodes/comfyui-lora-manager"
-mkdir -p "${COMFY_ROOT}/temp"
-
+# Optional: copy config.ini into expected path
 if [[ -f "${CONFIG_INI}" ]]; then
-  echo "Copying ${CONFIG_INI} -> ${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
-  cp "${CONFIG_INI}" "${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
-else
-  # Try to download config.ini if a URL is available
-  if [[ -n "${CONFIG_INI_URL:-}" ]]; then
-    if download_file "${CONFIG_INI_URL}" "${CONFIG_INI}"; then
-      echo "Downloaded config.ini -> ${CONFIG_INI}; copying to ${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini"
-      cp "${CONFIG_INI}" "${COMFY_ROOT}/user/default/ComfyUI-Manager/config.ini" || echo "Failed to copy downloaded config.ini"
-    else
-      echo "Could not download config.ini from ${CONFIG_INI_URL}; skipping"
-    fi
-  else
-    echo "No config.ini found at ${CONFIG_INI} and no CONFIG_INI_URL provided; skipping"
-  fi
+  target_dir="${COMFY_ROOT}/user/default/ComfyUI-Manager"
+  mkdir -p "${target_dir}"
+  cp "${CONFIG_INI}" "${target_dir}/config.ini"
+  echo "==> Placed config.ini"
 fi
 
-# Reset models directory
-echo "Resetting models directory: ${COMFY_ROOT}/models"
-rm -rf "${COMFY_ROOT}/models"
-mkdir -p "${COMFY_ROOT}/models"
-
-echo "ComfyUI install logic complete."
+echo "==> Done. To launch:"
+echo "    cd \"${WORKSPACE}\" && comfy launch"
+echo "(You can add arguments after 'comfy launch' if needed.)"
