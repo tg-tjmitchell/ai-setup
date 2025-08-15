@@ -15,6 +15,8 @@ set -euo pipefail
 ADD_NVIDIA=${ADD_NVIDIA:-true}
 COMFY_WORKSPACE=${COMFY_WORKSPACE:-"$HOME/comfy"}
 COMFY_ROOT=${COMFY_ROOT:-"$COMFY_WORKSPACE/ComfyUI"}
+SET_DEFAULT=${SET_DEFAULT:-true}          # Whether to run `comfy set-default` after install
+LAUNCH_EXTRAS=${LAUNCH_EXTRAS:-""}        # Extra default launch args passed to set-default (optional)
 
 # If user provided COMFY_ROOT but not COMFY_WORKSPACE (or they mismatch), realign so that
 # installing with `comfy --workspace <COMFY_WORKSPACE> install` puts files at COMFY_ROOT.
@@ -40,7 +42,7 @@ CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchel
 PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
 
 echo "ComfyUI installer (standalone)"
-echo "COMFY_WORKSPACE=${COMFY_WORKSPACE} COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA}"
+echo "COMFY_WORKSPACE=${COMFY_WORKSPACE} COMFY_ROOT=${COMFY_ROOT} ADD_NVIDIA=${ADD_NVIDIA} SET_DEFAULT=${SET_DEFAULT}"
 
 # Helper: download a file to a destination if possible (uses curl or wget)
 download_file() {
@@ -93,6 +95,16 @@ if [[ "${ADD_NVIDIA}" == "true" ]]; then
   comfy --workspace="${COMFY_WORKSPACE}" --skip-prompt install --fast-deps --nvidia
 else
   comfy --workspace="${COMFY_WORKSPACE}" --skip-prompt install --fast-deps
+fi
+
+# Optionally set this workspace as the default for subsequent comfy commands
+if [[ "${SET_DEFAULT}" == "true" ]]; then
+  echo "Setting default workspace to ${COMFY_WORKSPACE}"
+  if [[ -n "${LAUNCH_EXTRAS}" ]]; then
+    comfy set-default "${COMFY_WORKSPACE}" --launch-extras="${LAUNCH_EXTRAS}" || echo "set-default failed (non-fatal)"
+  else
+    comfy set-default "${COMFY_WORKSPACE}" || echo "set-default failed (non-fatal)"
+  fi
 fi
 
 # Install custom nodes from plugins.csv (first row, comma-separated)
