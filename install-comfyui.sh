@@ -68,7 +68,7 @@ python -m pip install --no-cache-dir -q comfy-cli
 
 echo "==> Running comfy install (--here)"
 if [[ "${ADD_NVIDIA}" == "true" ]]; then
-  comfy --here --skip-prompt install --fast-deps --nvidia
+  comfy --universal --here --skip-prompt install --fast-deps --nvidia
 else
   comfy --here --skip-prompt install --fast-deps
 fi
