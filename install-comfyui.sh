@@ -17,7 +17,7 @@ CONFIG_INI=${CONFIG_INI:-"./config.ini"}
 PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/plugins.csv"}
 CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/config.ini"}
 VENV_DIR=${VENV_DIR:-".venv"}
-USE_VENV=${USE_VENV:-true}   # Set to 'false' to skip creating/using a virtual environment
+USE_VENV=${USE_VENV:-false}   # Set to 'false' to skip creating/using a virtual environment
 
 # Directory of this script (original repo dir) in case we need to copy local files after cd
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
@@ -64,7 +64,7 @@ echo "==> Using python: $(command -v python)"
 
 echo "==> Ensuring comfy-cli is available"
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-python -m pip install --no-cache-dir -q comfy-cli
+python -m uv pip install comfy-cli
 
 echo "==> Running comfy install (--here)"
 if [[ "${ADD_NVIDIA}" == "true" ]]; then
