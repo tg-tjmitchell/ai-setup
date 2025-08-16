@@ -64,7 +64,7 @@ echo "==> Using python: $(command -v python)"
 
 echo "==> Ensuring comfy-cli is available"
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-python -m uv pip install comfy-cli
+python -m  pip install comfy-cli
 
 echo "==> Running comfy install (--here)"
 if [[ "${ADD_NVIDIA}" == "true" ]]; then
