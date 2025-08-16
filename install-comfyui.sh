@@ -18,6 +18,9 @@ PLUGINS_CSV_URL=${PLUGINS_CSV_URL:-"https://raw.githubusercontent.com/tg-tjmitch
 CONFIG_INI_URL=${CONFIG_INI_URL:-"https://raw.githubusercontent.com/tg-tjmitchell/ai-setup/main/config.ini"}
 VENV_DIR=${VENV_DIR:-".venv"}
 USE_VENV=${USE_VENV:-false}   # Set to 'false' to skip creating/using a virtual environment
+export TERM=dumb
+export NO_COLOR=1
+export PYTHONIOENCODING=utf-8
 
 # Directory of this script (original repo dir) in case we need to copy local files after cd
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
